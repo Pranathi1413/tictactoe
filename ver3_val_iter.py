@@ -30,7 +30,11 @@ winner = 0
 PTF = numpy.zeros((3139, 9, 3139))
 states = numpy.zeros((3139), int)
 policy = numpy.zeros((3139), int)
-
+w = numpy.zeros((3139))
+wprev = numpyzeros((3139))
+gamma = 0.1  #change it
+statetype = numpy.zeros((3139), int)
+pol = numpy.zeros((3139), int)
 
 #setup a rectangle for "Play Again" Option
 again_rect = Rect(screen_width // 2 - 80, screen_height // 2, 160, 50)
@@ -74,6 +78,7 @@ def check_game_over():
                 if sum(x) == 3:
                         winner = 1
                         game_over = True
+                        return 
                 if sum(x) == -3:
                         winner = 2
                         game_over = True
@@ -81,6 +86,7 @@ def check_game_over():
                 if markers[0][x_pos] + markers [1][x_pos] + markers [2][x_pos] == 3:
                         winner = 1
                         game_over = True
+                        return
                 if markers[0][x_pos] + markers [1][x_pos] + markers [2][x_pos] == -3:
                         winner = 2
                         game_over = True
@@ -90,6 +96,7 @@ def check_game_over():
         if markers[0][0] + markers[1][1] + markers [2][2] == 3 or markers[2][0] + markers[1][1] + markers [0][2] == 3:
                 winner = 1
                 game_over = True
+                return 
         if markers[0][0] + markers[1][1] + markers [2][2] == -3 or markers[2][0] + markers[1][1] + markers [0][2] == -3:
                 winner = 2
                 game_over = True
@@ -155,11 +162,74 @@ def pos_to_dec(pos):
         s+=str(pos[1])
         return int(s, 3)
 
+def check_4x4o(i):
+    global markers
+    global winner
+    for i in range(3):
+        for j in range(3):
+            if markers[i][j] == 0:
+                markers[i][j] = 1
+                markers[markers == 2] = -1
+                check_game_over()
+                statetype[i] = winner
+                return pos_to_dec((i,j))
+
+def r(posi, a, posj):
+    if statetype[posj] == 1:
+        return 100
+    if statetype[posj] == 2:
+        return -100
+    if statetype[posj] == 0:
+        return 10
+    return 0
+
+def rbar(posi, a):
+    res = 0.0
+    for posj in range(3139):
+        res += r(posi, a, posj) * PTF[posi][a][posj]
+    return res
+
+def term_a(posi, a):
+    mat = dec_to_mat(states[posi])
+    x,y = dec_to_pos(a)
+    if mat[x][y] != 0:
+        return 0
+    res1 = rbar(posi, a)
+    res2 = 0.0
+    for posj in range(3139):
+        res2 += PTF[posi][a][posj] * wprev[posj]
+    return res1 + gamma * res2
+        
+def isok():
+    for i in range(3139):
+        if abs(w[i]-wprev[i]) > 0.001:
+            return False
+    return True
+
+def fill_w():
+    global wprev
+    global w
+    global pol
+    for posi in range(3139):
+        maxterm = 0.0
+        for a in range(9):
+            res = term_a(posi, a)
+            if res > maxterm:
+                maxterm = res
+                pol[posi] = a
+        w[posi] = maxterm
+        
 def fill_prob():
         global states
         global PTF
+        global statetype
+        # 0-tie, 1-X wins, 2-O wins, -1-not over
+        global markers
+        global game_over
+        global winner
         c = 0
         states[c] = 0
+        statetype[c] = -1
         c = c+1
         ind = 0        
         while(ind < 2509):
@@ -178,6 +248,14 @@ def fill_prob():
                                                 dec = mat_to_dec(mat)
                                                 if dec not in states:
                                                         #print(mat)
+                                                        markers = mat
+                                                        markers[markers == 2] = -1
+                                                        check_game_over()
+                                                        if game_over == True:
+                                                            statetype[c] = winner
+                                                        else:
+                                                            statetype[c] = -1
+                                                        game_over = False
                                                         states[c] = dec
                                                         PTF[ind][i][c] = 1
                                                         c = c+1
@@ -187,26 +265,30 @@ def fill_prob():
                                                 mat[x1][y1] = 0
                                 mat[x][y] = 0
                 ind = ind + 1
-        for i in range(3139):
+        for i in range(2509, 3139):  #only 4x4o
+            markers = dec_to_mat(states[i])
+            act = check_4x4o(i) #internally takes care of statetype
+            PTF[i][act][0] = 1
+            
+        for i in range(2509):  #excluding 4x4o
                 for j in range(9):
                         s = numpy.count_nonzero(PTF[i][j]==1)
                         #print(s)
                         if s != 0:
-                                PTF[i][j] = numpy.where(PTF[i][j]==1, PTF[i][j]/s, 0)
-                                #psum = 0
-                                #ind = 0
-                                #for k in range(3139):
-                                 #       if PTF[i][j][k] != 0:
-                                  #              ind = k
-                                   #             psum = psum + PTF[i][j][k]
-                                #if psum < 1:
-                                 #       PTF[i][j][ind] = PTF[i][j][ind] + 1 - psum
-
+                            PTF[i][j] = numpy.where(PTF[i][j]==1, PTF[i][j]/s, 0)
+        for i in range(829, 2509):  #only 3x3o
+            if statetype[i] != -1:
+                PTF[i] = numpy.zeros((9,3139))
+                for j in range(9):
+                    PTF[i][j][0] = 1
+                
+                                
+        
 
 def make_policy():
         global policy
         for i in range(3139):
-                mat = dec_to_mat(states(i))
+                mat = dec_to_mat(states[i])
                 flag = 0
                 while flag == 0:
                         posdec = random.randint(0, 8)
@@ -219,11 +301,14 @@ def make_policy():
 #main loop
 run = True
 fill_prob()
+make_policy()
 while run:
 
         #draw board and markers first
         draw_board()
         draw_markers()
+        num_act = 0
+        
         #handle events
         for event in pygame.event.get():
                 #handle game exit
@@ -236,29 +321,30 @@ while run:
                                 clicked = True
                         if event.type == pygame.MOUSEBUTTONUP and clicked == True:
                                 clicked = False
-                                pos = pygame.mouse.get_pos()
-                                cell_x = pos[0] // 100
-                                cell_y = pos[1] // 100
-                                if markers[cell_x][cell_y] == 0:
-                                        markers[markers == -1] = 2
-                                        istate = mat_to_dec(markers)
-                                        istateind = numpy.where(states == istate)[0][0]
-                                        #print(istate)
-                                        #print(states)
-                                        #print(istateind)
-                                        markers[cell_x][cell_y] = 1
-                                        markers[markers == 2] = -1
-                                        check_game_over()
-                                        if game_over == True:
-                                                pass
-                                        else:
-                                                action = pos_to_dec((cell_x, cell_y))
-                                                #print(PTF[istateind][action])
-                                                nstateind = numpy.random.choice(range(3139), 1, p=PTF[istateind][action])[0]
-                                                nstate = states[nstateind]
-                                                markers = dec_to_mat(nstate)
-                                                markers[markers == 2] = -1
-                                                check_game_over()
+                                if num_act < 4:
+                                    markers[markers == -1] = 2
+                                    istate = mat_to_dec(markers)
+                                    istateind = numpy.where(states == istate)[0][0]
+                                    posdec = policy[istateind]
+                                    cell_x, cell_y = dec_to_pos(posdec)
+                                    num_act = num_act + 1
+                                    markers[cell_x][cell_y] = 1
+                                    markers[markers == 2] = -1
+                                    check_game_over()
+                                    if game_over == True:
+                                            pass
+                                    else:
+                                            action = pos_to_dec((cell_x, cell_y))
+                                            #print(PTF[istateind][action])
+                                            nstateind = numpy.random.choice(range(3139), 1, p=PTF[istateind][action])[0]
+                                            nstate = states[nstateind]
+                                            markers = dec_to_mat(nstate)
+                                            markers[markers == 2] = -1
+                                            check_game_over()
+                                if num_act == 4:
+                                    markers[markers == 0] = 1
+                                    
+                                        
 
         #check if game has been won
         if game_over == True:
